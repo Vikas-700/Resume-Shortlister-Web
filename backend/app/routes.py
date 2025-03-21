@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from werkzeug.utils import secure_filename
 import os
 from .models import db, Job, Candidate
@@ -167,6 +167,27 @@ def get_jobs():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@main.route('/api/jobs/<int:job_id>', methods=['DELETE'])
+def delete_job(job_id):
+    try:
+        job = Job.query.get_or_404(job_id)
+        
+        # Delete all candidates associated with the job
+        Candidate.query.filter_by(job_id=job_id).delete()
+        
+        # Delete the job
+        db.session.delete(job)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Job deleted successfully',
+            'id': job_id
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting job: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @main.route('/api/jobs/<int:job_id>/upload-resume', methods=['POST'])
 def upload_resume(job_id):
     try:
@@ -310,4 +331,69 @@ def get_candidates(job_id):
             } for c in candidates]
         })
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/top-resumes', methods=['GET'])
+def get_top_resumes():
+    try:
+        limit = request.args.get('limit', default=10, type=int)
+        
+        # Join with Job to get job title
+        query = db.session.query(
+            Candidate, 
+            Job.title.label('job_title')
+        ).join(
+            Job, 
+            Candidate.job_id == Job.id
+        ).order_by(
+            Candidate.score.desc()
+        ).limit(limit)
+        
+        results = query.all()
+        
+        return jsonify({
+            'top_resumes': [{
+                'id': c.Candidate.id,
+                'candidate_id': c.Candidate.candidate_id,
+                'name': c.Candidate.name,
+                'email': c.Candidate.email,
+                'mobile': c.Candidate.mobile,
+                'city': c.Candidate.city,
+                'score': c.Candidate.score,
+                'resume_path': c.Candidate.resume_path,
+                'job_id': c.Candidate.job_id,
+                'job_title': c.job_title
+            } for c in results]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/resumes/<filename>', methods=['GET'])
+def get_resume(filename):
+    try:
+        # Security check to prevent directory traversal
+        if '..' in filename or filename.startswith('/'):
+            return jsonify({'error': 'Invalid filename'}), 400
+            
+        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+            
+        # Determine content type based on file extension
+        content_type = 'application/pdf' if filename.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        
+        # Set disposition to inline for viewing in browser, or attachment for download
+        disposition_type = request.args.get('download', 'false').lower() == 'true'
+        disposition = 'attachment' if disposition_type else 'inline'
+        
+        return send_from_directory(
+            current_app.config['UPLOAD_FOLDER'],
+            filename,
+            mimetype=content_type,
+            as_attachment=disposition_type,
+            download_name=filename.split('_', 1)[1] if '_' in filename else filename
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error serving resume file: {str(e)}")
         return jsonify({'error': str(e)}), 500 

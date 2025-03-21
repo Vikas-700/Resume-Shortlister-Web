@@ -3,7 +3,7 @@ import axios from 'axios';
 import './App.css';
 
 // Configure axios defaults
-axios.defaults.baseURL = 'http://localhost:5000';
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 // Custom modal component for displaying results
 const ResultModal = ({ isOpen, onClose, results }) => {
@@ -49,6 +49,103 @@ const ResultModal = ({ isOpen, onClose, results }) => {
   );
 };
 
+// Top Resumes Page Component
+const TopResumesPage = () => {
+  const [topResumes, setTopResumes] = useState([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [limit, setLimit] = useState(10);
+  const limitOptions = [10, 20, 30, 50, 100];
+
+  useEffect(() => {
+    fetchTopResumes();
+  }, [limit]);
+
+  const fetchTopResumes = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`/api/top-resumes?limit=${limit}`);
+      setTopResumes(response.data.top_resumes);
+      setError('');
+    } catch (err) {
+      setError('Failed to fetch top resumes');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const viewResume = (resumePath) => {
+    const resumeUrl = `${axios.defaults.baseURL}/api/resumes/${resumePath}`;
+    window.open(resumeUrl, '_blank');
+  };
+
+  const downloadResume = (resumePath) => {
+    const downloadUrl = `${axios.defaults.baseURL}/api/resumes/${resumePath}?download=true`;
+    window.open(downloadUrl, '_blank');
+  };
+
+  return (
+    <div className="top-resumes-page">
+      <h2>Top Resumes</h2>
+      
+      <div className="limit-selector">
+        <label>Show top: </label>
+        <select 
+          value={limit} 
+          onChange={(e) => setLimit(Number(e.target.value))}
+        >
+          {limitOptions.map(option => (
+            <option key={option} value={option}>
+              {option} Resumes
+            </option>
+          ))}
+        </select>
+      </div>
+      
+      {error && <div className="error">{error}</div>}
+      {loading && <div className="loading">Loading...</div>}
+      
+      {topResumes.length > 0 ? (
+        <div className="top-resumes-list">
+          {topResumes.map((resume, index) => (
+            <div key={resume.id} className="top-resume-item">
+              <div className="resume-rank">{index + 1}</div>
+              <div className="resume-content">
+                <h3>{resume.name || `Candidate ${resume.candidate_id.substring(0, 8)}`}</h3>
+                <p className="job-title">Job: {resume.job_title}</p>
+                {resume.email && <p>Email: {resume.email}</p>}
+                {resume.mobile && <p>Mobile: {resume.mobile}</p>}
+                {resume.city && <p>City: {resume.city}</p>}
+                <p className="score">Score: {resume.score.toFixed(2)}%</p>
+                
+                <div className="resume-actions">
+                  <button 
+                    className="view-resume-btn"
+                    onClick={() => viewResume(resume.resume_path)}
+                  >
+                    View Resume
+                  </button>
+                  <button 
+                    className="download-resume-btn"
+                    onClick={() => downloadResume(resume.resume_path)}
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="no-resumes">
+          <p>No resumes found. Add candidates to jobs to see top resumes here.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 function App() {
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -62,6 +159,7 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [uploadResults, setUploadResults] = useState({ success: 0, skipped: 0, failed: 0, skippedFiles: [] });
+  const [activePage, setActivePage] = useState('jobs'); // 'jobs' or 'top-resumes'
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -94,6 +192,33 @@ function App() {
       const errorMessage = err.response?.data?.error || 'Failed to create job';
       setError(`Error: ${errorMessage}`);
       console.error('Error creating job:', err.response?.data || err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteJob = async (jobId) => {
+    if (!window.confirm('Are you sure you want to delete this job? This will also delete all associated candidates.')) {
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      await axios.delete(`/api/jobs/${jobId}`);
+      
+      // If we're deleting the selected job, clear the selection
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob(null);
+        setCandidates([]);
+      }
+      
+      // Refresh the jobs list
+      fetchJobs();
+      setError('');
+    } catch (err) {
+      const errorMessage = err.response?.data?.error || 'Failed to delete job';
+      setError(`Error: ${errorMessage}`);
+      console.error('Error deleting job:', err.response?.data || err);
     } finally {
       setLoading(false);
     }
@@ -236,152 +361,184 @@ function App() {
       <div className="app-header">
         <h1><span className="logo-icon">RS</span> Resume Shortlister</h1>
         <p className="tagline">Visionary VPA AI Talent Screening</p>
+        
+        <nav className="app-nav">
+          <button 
+            className={`nav-link ${activePage === 'jobs' ? 'active' : ''}`} 
+            onClick={() => setActivePage('jobs')}
+          >
+            Jobs
+          </button>
+          <button 
+            className={`nav-link ${activePage === 'top-resumes' ? 'active' : ''}`} 
+            onClick={() => setActivePage('top-resumes')}
+          >
+            Top Resumes
+          </button>
+        </nav>
       </div>
       
       {error && <div className="error">{error}</div>}
       {loading && <div className="loading">Loading...</div>}
 
-      <div className="job-form">
-        <h2>Create New Job</h2>
-        <form onSubmit={createJob}>
-          <input
-            type="text"
-            placeholder="Job Title"
-            value={newJob.title}
-            onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
-            required
-          />
-          <textarea
-            placeholder="Job Description"
-            value={newJob.description}
-            onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
-            required
-          />
-          <button type="submit" disabled={loading}>Create Job</button>
-        </form>
-      </div>
+      {activePage === 'jobs' ? (
+        <>
+          <div className="job-form">
+            <h2>Create New Job</h2>
+            <form onSubmit={createJob}>
+              <input
+                type="text"
+                placeholder="Job Title"
+                value={newJob.title}
+                onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
+                required
+              />
+              <textarea
+                placeholder="Job Description"
+                value={newJob.description}
+                onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
+                required
+              />
+              <button type="submit" disabled={loading}>Create Job</button>
+            </form>
+          </div>
 
-      <div className="content">
-        <div className="jobs-list">
-          <h2>Jobs</h2>
-          {jobs.map(job => (
-            <div
-              key={job.id}
-              className={`job-item ${selectedJob?.id === job.id ? 'selected' : ''}`}
-              onClick={() => selectJob(job)}
-            >
-              <h3>{job.title}</h3>
-              <p>{job.description}</p>
-            </div>
-          ))}
-        </div>
-
-        {selectedJob && (
-          <div className="candidates-list">
-            <h2>Candidates for {selectedJob.title}</h2>
-            
-            {!showCandidateForm ? (
-              <div 
-                className={`file-drop-zone ${dragActive ? 'active' : ''}`}
-                onDragEnter={handleDrag}
-                onDragOver={handleDrag}
-                onDragLeave={handleDrag}
-                onDrop={handleDrop}
-                onClick={onButtonClick}
-              >
-                <div className="icon">📄</div>
-                <p>Drag and drop your resumes here or click to select files</p>
-                <p>You can upload multiple resumes at once</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx"
-                  onChange={handleFileSelect}
-                  style={{ display: 'none' }}
-                  multiple
-                />
-              </div>
-            ) : (
-              <form onSubmit={handleCandidateSubmit}>
-                <h3>Selected Resumes</h3>
-                <div className="selected-files">
-                  {selectedFiles.map((file, index) => (
-                    <div key={index} className="file-item">
-                      <span className="file-name">{file.name}</span>
-                      <button 
-                        type="button" 
-                        className="remove-file" 
-                        onClick={() => removeFile(index)}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="info-note">These details will be applied to all selected resumes. Leave blank if you want information extracted automatically.</p>
-                <input
-                  type="text"
-                  placeholder="Name (optional)"
-                  value={candidateInfo.name}
-                  onChange={(e) => setCandidateInfo({ ...candidateInfo, name: e.target.value })}
-                />
-                <input
-                  type="email"
-                  placeholder="Email (optional)"
-                  value={candidateInfo.email}
-                  onChange={(e) => setCandidateInfo({ ...candidateInfo, email: e.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="Mobile Number (optional)"
-                  value={candidateInfo.mobile}
-                  onChange={(e) => setCandidateInfo({ ...candidateInfo, mobile: e.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="City (optional)"
-                  value={candidateInfo.city}
-                  onChange={(e) => setCandidateInfo({ ...candidateInfo, city: e.target.value })}
-                />
-                <div className="button-container">
-                  <button type="submit" disabled={loading}>Upload {selectedFiles.length} Resume{selectedFiles.length !== 1 && 's'}</button>
+          <div className="content">
+            <div className="jobs-list">
+              <h2>Jobs</h2>
+              {jobs.map(job => (
+                <div
+                  key={job.id}
+                  className={`job-item ${selectedJob?.id === job.id ? 'selected' : ''}`}
+                >
+                  <div className="job-content" onClick={() => selectJob(job)}>
+                    <h3>{job.title}</h3>
+                    <p>{job.description}</p>
+                  </div>
                   <button 
-                    type="button" 
-                    onClick={() => {
-                      setShowCandidateForm(false);
-                      setSelectedFiles([]);
+                    className="delete-job-btn" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteJob(job.id);
                     }}
-                    disabled={loading}
+                    title="Delete job"
                   >
-                    Cancel
+                    ×
                   </button>
                 </div>
-              </form>
-            )}
-            
-            {candidates.length > 0 ? (
-              <>
-                <h3>Results ({candidates.length} candidate{candidates.length !== 1 && 's'})</h3>
-                {candidates.map(candidate => (
-                  <div key={candidate.id} className="candidate-item">
-                    <h3>{candidate.name || `Candidate ${candidate.candidate_id.substring(0, 8)}`}</h3>
-                    {candidate.email && <p>Email: {candidate.email}</p>}
-                    {candidate.mobile && <p>Mobile: {candidate.mobile}</p>}
-                    {candidate.city && <p>City: {candidate.city}</p>}
-                    <p className="score">Score: {candidate.score.toFixed(2)}%</p>
+              ))}
+            </div>
+
+            {selectedJob && (
+              <div className="candidates-list">
+                <h2>Candidates for {selectedJob.title}</h2>
+                
+                {!showCandidateForm ? (
+                  <div 
+                    className={`file-drop-zone ${dragActive ? 'active' : ''}`}
+                    onDragEnter={handleDrag}
+                    onDragOver={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={onButtonClick}
+                  >
+                    <div className="icon">📄</div>
+                    <p>Drag and drop your resumes here or click to select files</p>
+                    <p>You can upload multiple resumes at once</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx"
+                      onChange={handleFileSelect}
+                      style={{ display: 'none' }}
+                      multiple
+                    />
                   </div>
-                ))}
-              </>
-            ) : (
-              !showCandidateForm && (
-                <div className="no-candidates">
-                  <p>No candidates found for this job. Upload resumes to see results here.</p>
-                </div>
-              )
+                ) : (
+                  <form onSubmit={handleCandidateSubmit}>
+                    <h3>Selected Resumes</h3>
+                    <div className="selected-files">
+                      {selectedFiles.map((file, index) => (
+                        <div key={index} className="file-item">
+                          <span className="file-name">{file.name}</span>
+                          <button 
+                            type="button" 
+                            className="remove-file" 
+                            onClick={() => removeFile(index)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="info-note">These details will be applied to all selected resumes. Leave blank if you want information extracted automatically.</p>
+                    <input
+                      type="text"
+                      placeholder="Name (optional)"
+                      value={candidateInfo.name}
+                      onChange={(e) => setCandidateInfo({ ...candidateInfo, name: e.target.value })}
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email (optional)"
+                      value={candidateInfo.email}
+                      onChange={(e) => setCandidateInfo({ ...candidateInfo, email: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Mobile Number (optional)"
+                      value={candidateInfo.mobile}
+                      onChange={(e) => setCandidateInfo({ ...candidateInfo, mobile: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      placeholder="City (optional)"
+                      value={candidateInfo.city}
+                      onChange={(e) => setCandidateInfo({ ...candidateInfo, city: e.target.value })}
+                    />
+                    <div className="button-container">
+                      <button type="submit" disabled={loading}>Upload {selectedFiles.length} Resume{selectedFiles.length !== 1 && 's'}</button>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setShowCandidateForm(false);
+                          setSelectedFiles([]);
+                        }}
+                        disabled={loading}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+                
+                {candidates.length > 0 ? (
+                  <>
+                    <h3>Results ({candidates.length} candidate{candidates.length !== 1 && 's'})</h3>
+                    {candidates.map(candidate => (
+                      <div key={candidate.id} className="candidate-item">
+                        <h3>{candidate.name || `Candidate ${candidate.candidate_id.substring(0, 8)}`}</h3>
+                        {candidate.email && <p>Email: {candidate.email}</p>}
+                        {candidate.mobile && <p>Mobile: {candidate.mobile}</p>}
+                        {candidate.city && <p>City: {candidate.city}</p>}
+                        <p className="score">Score: {candidate.score.toFixed(2)}%</p>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  !showCandidateForm && (
+                    <div className="no-candidates">
+                      <p>No candidates found for this job. Upload resumes to see results here.</p>
+                    </div>
+                  )
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <TopResumesPage />
+      )}
       
       <footer className="app-footer">
         <p>&copy; {new Date().getFullYear()} Visionary VPA Resume Shortlister. All rights reserved.</p>
