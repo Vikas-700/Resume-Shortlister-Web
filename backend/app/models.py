@@ -16,6 +16,7 @@ class Candidate(db.Model):
     email = db.Column(db.String(100))
     mobile = db.Column(db.String(20))
     city = db.Column(db.String(100), nullable=True)
+    highest_qualification = db.Column(db.String(200), nullable=True)
     resume_path = db.Column(db.String(255))
     score = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
