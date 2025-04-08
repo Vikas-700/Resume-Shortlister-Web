@@ -52,15 +52,38 @@ def create_job():
     try:
         data = request.get_json()
         if not data or 'title' not in data or 'description' not in data:
-            return jsonify({'error': 'Missing required fields'}), 400
-
-        job = Job(title=data['title'], description=data['description'])
-        db.session.add(job)
-        db.session.commit()
-        return jsonify({'id': job.id, 'title': job.title}), 201
+            return jsonify({'error': 'Title and description are required'}), 400
+        
+        # Print the received data for debugging
+        print("Received job data:", data)
+        
+        job = Job(
+            title=data['title'],
+            description=data['description']
+        )
+        
+        try:
+            db.session.add(job)
+            db.session.commit()
+            return jsonify({
+                'message': 'Job created successfully',
+                'job': {
+                    'id': job.id,
+                    'title': job.title,
+                    'description': job.description,
+                    'created_at': job.created_at.isoformat()
+                }
+            }), 201
+        except Exception as e:
+            # Print the database error
+            print("Database error:", str(e))
+            db.session.rollback()
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
+            
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        # Print any other errors
+        print("General error:", str(e))
+        return jsonify({'error': f'Failed to create job: {str(e)}'}), 500
 
 @main.route('/api/jobs', methods=['GET'])
 def get_jobs():

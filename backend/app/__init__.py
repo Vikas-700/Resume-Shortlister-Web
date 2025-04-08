@@ -38,9 +38,14 @@ def create_app():
     
     # Create database tables
     with app.app_context():
-        # Drop all tables and recreate them
-        db.drop_all()
-        db.create_all()
+        try:
+            # Drop all tables and recreate them
+            db.drop_all()
+            db.create_all()
+            print("Database tables created successfully")
+        except Exception as e:
+            print(f"Error creating database tables: {str(e)}")
+            raise e
     
     # Register blueprints
     from .routes import main
