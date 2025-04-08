@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: resume-shortlister-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: run.py
+    autoDeploy: true 

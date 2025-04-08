@@ -3,7 +3,11 @@ import axios from 'axios';
 import './App.css';
 
 // Configure axios defaults
-axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'https://resume-shortlister-backend.onrender.com';
+// Fallback to localhost for development
+if (window.location.hostname === 'localhost') {
+  axios.defaults.baseURL = 'http://localhost:5000';
+}
 
 // Custom modal component for displaying results
 const ResultModal = ({ isOpen, onClose, results }) => {
