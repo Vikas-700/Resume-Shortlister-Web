@@ -673,6 +673,11 @@ h3 {
 
 .selected-files {
   margin: 15px 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--bg-dark);
 }
 
 .selected-files .file-item {
@@ -681,9 +686,14 @@ h3 {
   align-items: center;
   padding: 8px 12px;
   background-color: var(--bg-dark);
-  margin-bottom: 5px;
-  border-radius: 4px;
+  margin-bottom: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   border-left: 3px solid var(--primary);
+}
+
+.selected-files .file-item:last-child {
+  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .selected-files .file-name {
@@ -691,6 +701,7 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
+  font-size: 0.9rem;
 }
 
 .selected-files .remove-file {
@@ -699,6 +710,21 @@ h3 {
   color: var(--error);
   cursor: pointer;
   font-size: 1.2rem;
+}
+
+/* Multi-file upload styles */
+.multi-file-upload {
+  background-color: rgba(255, 152, 0, 0.05);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 15px;
+  border: 1px solid var(--primary);
+}
+
+.multi-file-upload .info-note {
+  margin: 10px 0;
+  color: var(--primary);
+  font-weight: 500;
 }
 
 /* No candidates empty state */
@@ -1048,5 +1074,54 @@ h3 {
 @media (max-width: 768px) {
   .limit-selector {
     justify-content: flex-start;
+  }
+}
+
+/* Filter controls for Top Resumes page */
+.filter-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 15px;
+  background-color: var(--bg-dark);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.job-filter, .limit-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-filter select, .limit-selector select {
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.9rem;
+  min-width: 150px;
+}
+
+.job-selector {
+  min-width: 200px !important;
+}
+
+@media (max-width: 768px) {
+  .filter-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .job-filter, .limit-selector {
+    width: 100%;
+  }
+  
+  .job-filter select, .limit-selector select {
+    flex-grow: 1;
   }
 } 

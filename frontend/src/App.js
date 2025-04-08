@@ -55,16 +55,32 @@ const TopResumesPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(10);
+  const [selectedJobId, setSelectedJobId] = useState('all');
+  const [availableJobs, setAvailableJobs] = useState([]);
   const limitOptions = [10, 20, 30, 50, 100];
 
   useEffect(() => {
+    fetchJobs();
     fetchTopResumes();
-  }, [limit]);
+  }, [limit, selectedJobId]);
+
+  const fetchJobs = async () => {
+    try {
+      const response = await axios.get('/api/jobs');
+      setAvailableJobs(response.data.jobs);
+    } catch (err) {
+      console.error("Failed to fetch jobs for filter:", err);
+    }
+  };
 
   const fetchTopResumes = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`/api/top-resumes?limit=${limit}`);
+      let url = `/api/top-resumes?limit=${limit}`;
+      if (selectedJobId !== 'all') {
+        url += `&job_id=${selectedJobId}`;
+      }
+      const response = await axios.get(url);
       setTopResumes(response.data.top_resumes);
       setError('');
     } catch (err) {
@@ -89,18 +105,36 @@ const TopResumesPage = () => {
     <div className="top-resumes-page">
       <h2>Top Resumes</h2>
       
-      <div className="limit-selector">
-        <label>Show top: </label>
-        <select 
-          value={limit} 
-          onChange={(e) => setLimit(Number(e.target.value))}
-        >
-          {limitOptions.map(option => (
-            <option key={option} value={option}>
-              {option} Resumes
-            </option>
-          ))}
-        </select>
+      <div className="filter-controls">
+        <div className="job-filter">
+          <label>Filter by Job: </label>
+          <select 
+            value={selectedJobId} 
+            onChange={(e) => setSelectedJobId(e.target.value)}
+            className="job-selector"
+          >
+            <option value="all">All Jobs</option>
+            {availableJobs.map(job => (
+              <option key={job.id} value={job.id}>
+                {job.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="limit-selector">
+          <label>Show top: </label>
+          <select 
+            value={limit} 
+            onChange={(e) => setLimit(Number(e.target.value))}
+          >
+            {limitOptions.map(option => (
+              <option key={option} value={option}>
+                {option} Resumes
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       
       {error && <div className="error">{error}</div>}
@@ -281,10 +315,14 @@ function App() {
       const uploadPromises = selectedFiles.map(async (file, index) => {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('name', candidateInfo.name);
-        formData.append('email', candidateInfo.email);
-        formData.append('mobile', candidateInfo.mobile);
-        formData.append('city', candidateInfo.city);
+        
+        // Only include manual info if uploading a single resume
+        if (selectedFiles.length === 1) {
+          formData.append('name', candidateInfo.name);
+          formData.append('email', candidateInfo.email);
+          formData.append('mobile', candidateInfo.mobile);
+          formData.append('city', candidateInfo.city);
+        }
         
         try {
           await axios.post(`/api/jobs/${selectedJob.id}/upload-resume`, formData);
@@ -455,8 +493,8 @@ function App() {
                     />
                   </div>
                 ) : (
-                  <form onSubmit={handleCandidateSubmit}>
-                    <h3>Selected Resumes</h3>
+                  <form onSubmit={handleCandidateSubmit} className={selectedFiles.length > 1 ? "multi-file-upload" : ""}>
+                    <h3>Selected Resumes {selectedFiles.length > 0 && `(${selectedFiles.length})`}</h3>
                     <div className="selected-files">
                       {selectedFiles.map((file, index) => (
                         <div key={index} className="file-item">
@@ -471,31 +509,37 @@ function App() {
                         </div>
                       ))}
                     </div>
-                    <p className="info-note">These details will be applied to all selected resumes. Leave blank if you want information extracted automatically.</p>
-                    <input
-                      type="text"
-                      placeholder="Name (optional)"
-                      value={candidateInfo.name}
-                      onChange={(e) => setCandidateInfo({ ...candidateInfo, name: e.target.value })}
-                    />
-                    <input
-                      type="email"
-                      placeholder="Email (optional)"
-                      value={candidateInfo.email}
-                      onChange={(e) => setCandidateInfo({ ...candidateInfo, email: e.target.value })}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Mobile Number (optional)"
-                      value={candidateInfo.mobile}
-                      onChange={(e) => setCandidateInfo({ ...candidateInfo, mobile: e.target.value })}
-                    />
-                    <input
-                      type="text"
-                      placeholder="City (optional)"
-                      value={candidateInfo.city}
-                      onChange={(e) => setCandidateInfo({ ...candidateInfo, city: e.target.value })}
-                    />
+                    {selectedFiles.length > 1 ? (
+                      <p className="info-note">Information will be automatically extracted from each resume.</p>
+                    ) : (
+                      <>
+                        <p className="info-note">These details will be applied to the selected resume. Leave blank if you want information extracted automatically.</p>
+                        <input
+                          type="text"
+                          placeholder="Name (optional)"
+                          value={candidateInfo.name}
+                          onChange={(e) => setCandidateInfo({ ...candidateInfo, name: e.target.value })}
+                        />
+                        <input
+                          type="email"
+                          placeholder="Email (optional)"
+                          value={candidateInfo.email}
+                          onChange={(e) => setCandidateInfo({ ...candidateInfo, email: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Mobile Number (optional)"
+                          value={candidateInfo.mobile}
+                          onChange={(e) => setCandidateInfo({ ...candidateInfo, mobile: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          placeholder="City (optional)"
+                          value={candidateInfo.city}
+                          onChange={(e) => setCandidateInfo({ ...candidateInfo, city: e.target.value })}
+                        />
+                      </>
+                    )}
                     <div className="button-container">
                       <button type="submit" disabled={loading}>Upload {selectedFiles.length} Resume{selectedFiles.length !== 1 && 's'}</button>
                       <button 

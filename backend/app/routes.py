@@ -2,6 +2,18 @@ from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from werkzeug.utils import secure_filename
 import os
 from .models import db, Job, Candidate
+import re
+import string
+
+# Try to import scikit-learn, but provide fallbacks if not available
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    sklearn_available = True
+except ImportError:
+    print("scikit-learn not available. Using basic scoring methods only.")
+    sklearn_available = False
+    
 # Update PyPDF2 import with better error handling
 try:
     import PyPDF2
@@ -116,53 +128,149 @@ def extract_text_from_docx(file_path):
     return text
 
 def clean_text(text):
-    # Remove URLs and special characters
     text = re.sub(r'http\S+', '', text)
     text = re.sub(r'[^a-zA-Z0-9\s.,;:!?\-&]', '', text)
-    
-    # Remove punctuation and numbers
     text = text.translate(str.maketrans('', '', string.punctuation))
     text = re.sub(r'\d+', '', text)
-    
-    # Tokenize and remove stopwords
     words = word_tokenize(text.lower())
     filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
     return ' '.join(filtered_words)
 
+def extract_keywords(text, top_n=10):
+    """Extract top N keywords based on TF-IDF."""
+    # If scikit-learn is not available, return simple word frequency
+    if not sklearn_available:
+        try:
+            words = text.lower().split()
+            word_freq = {}
+            for word in words:
+                if word not in stop_words and len(word) > 2:
+                    word_freq[word] = word_freq.get(word, 0) + 1
+            
+            # Sort by frequency
+            sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+            return [word for word, freq in sorted_words[:top_n]]
+        except Exception as e:
+            current_app.logger.error(f"Error extracting keywords with basic method: {str(e)}")
+            return []
+    
+    # If scikit-learn is available, use TF-IDF
+    try:
+        # Check if text is empty or too short
+        if not text or len(text.split()) < 3:
+            return []
+            
+        vectorizer = TfidfVectorizer(min_df=1, max_features=100)
+        tfidf = vectorizer.fit_transform([text])
+        
+        # In case of empty vectorizer result
+        if tfidf.shape[1] == 0:
+            return []
+            
+        scores = zip(vectorizer.get_feature_names_out(), tfidf.toarray()[0])
+        sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)
+        return [word for word, score in sorted_scores[:top_n] if score > 0]
+    except Exception as e:
+        current_app.logger.error(f"Error extracting keywords: {str(e)}")
+        return []
+
 def calculate_score(resume_text, job_description):
-    # Clean both texts
-    clean_resume = clean_text(resume_text)
-    clean_job = clean_text(job_description)
-    
-    # Create frequency dictionaries
-    resume_words = clean_resume.split()
-    job_words = clean_job.split()
-    
-    # Calculate term frequency weights
-    job_word_freq = {word: job_words.count(word) for word in set(job_words)}
-    resume_word_freq = {word: resume_words.count(word) for word in set(resume_words)}
-    
-    # Calculate weighted score
-    score = 0
-    for word, freq in job_word_freq.items():
-        if word in resume_word_freq:
-            score += (freq * resume_word_freq[word]) * len(word)
-    
-    # Normalize score
-    max_score = sum([(freq**2) * len(word) for word, freq in job_word_freq.items()])
-    return round((score / max_score * 100) if max_score > 0 else 0, 2)
+    """Calculate how well a resume matches a job description."""
+    try:
+        # Basic text cleaning
+        clean_resume = clean_text(resume_text)
+        clean_job = clean_text(job_description)
+
+        # Safety check for empty texts
+        if not clean_resume or not clean_job:
+            return 0.0
+            
+        # Basic word overlap scoring (safe method)
+        resume_words = set(clean_resume.split())
+        job_words = set(clean_job.split())
+        
+        if not job_words:
+            return 0.0
+            
+        simple_score = len(resume_words.intersection(job_words)) / len(job_words) * 100
+        
+        # Only try advanced scoring if sklearn is available
+        if sklearn_available and len(clean_resume.split()) > 10 and len(clean_job.split()) > 10:
+            try:
+                # TF-IDF with cosine similarity
+                vectorizer = TfidfVectorizer(min_df=1)
+                tfidf_matrix = vectorizer.fit_transform([clean_job, clean_resume])
+                
+                if tfidf_matrix.shape[1] > 0:  # Only if we have features
+                    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
+                    
+                    # Final score (70% TF-IDF similarity, 30% word overlap)
+                    combined_score = (0.7 * similarity) + (0.3 * simple_score)
+                    return round(min(combined_score, 100.0), 2)
+            except Exception as e:
+                current_app.logger.error(f"Advanced scoring failed, using simple method: {str(e)}")
+                # Fall back to simple scoring if advanced fails
+        
+        # Return simple scoring result if advanced method was skipped or failed
+        return round(min(simple_score, 100.0), 2)
+    except Exception as e:
+        current_app.logger.error(f"Score calculation error: {str(e)}")
+        return 1.0  # Return minimal non-zero score on error
 
 def extract_email(text):
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    match = re.search(email_pattern, text)
-    return match.group(0) if match else ''
+    # More comprehensive pattern to catch various email formats
+    email_patterns = [
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Standard email
+        r'\b[A-Za-z0-9._%+-]+[\s]*@[\s]*[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email with spaces
+        r'\b[A-Za-z0-9._%+-]+[\s]*\(at\)[\s]*[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email with (at)
+        r'\b[A-Za-z0-9._%+-]+[\s]*\[at\][\s]*[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email with [at]
+    ]
+    
+    for pattern in email_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            # Clean up any spaces or special formats
+            email = match.group(0)
+            email = email.replace(' ', '').replace('(at)', '@').replace('[at]', '@')
+            return email
+    
+    # Try to find email mentioned in different format like "Email: user at domain.com"
+    email_label_pattern = r'(?:e-?mail|id)[\s:]*([A-Za-z0-9._%+-]+[\s]*(?:@|\(at\)|\[at\])[\s]*[A-Za-z0-9.-]+\.[A-Za-z]{2,})'
+    match = re.search(email_label_pattern, text, re.IGNORECASE)
+    if match:
+        email = match.group(1)
+        email = email.replace(' ', '').replace('(at)', '@').replace('[at]', '@')
+        return email
+        
+    return ''
 
 def extract_phone(text):
-    phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'
-    matches = re.findall(phone_pattern, text)
-    if matches:
-        phone = re.sub(r'[^\d+]', '', matches[0])
+    # Multiple patterns to catch different phone number formats
+    phone_patterns = [
+        r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # Standard formats: (123) 456-7890, 123-456-7890
+        r'\+?\d{1,3}[-.\s]?\d{2,3}[-.\s]?\d{2,4}[-.\s]?\d{2,4}',  # International format: +91 98765 43210
+        r'\b\d{10}\b',  # Plain 10 digits: 1234567890
+        r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',  # Common US format: 123-456-7890
+        r'\(\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}',  # Parentheses format: (123) 456-7890
+        r'\b\d{5}[-.\s]?\d{5}\b',  # Format like: 12345 67890
+    ]
+    
+    # Check each pattern
+    for pattern in phone_patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            # Clean the match by removing non-digit characters except + for international prefix
+            phone = re.sub(r'[^\d+]', '', matches[0])
+            # Limit to a reasonable length to avoid garbage matches
+            return phone[:15]
+    
+    # Try to find phone mentioned after a label like "Phone: 123-456-7890"
+    phone_label_pattern = r'(?:phone|mobile|cell|tel|telephone|contact)[\s:]*(\+?\d[-()\s.\d]{7,20})'
+    match = re.search(phone_label_pattern, text, re.IGNORECASE)
+    if match:
+        phone = re.sub(r'[^\d+]', '', match.group(1))
         return phone[:15]
+        
     return ''
 
 def extract_name(text):
@@ -323,65 +431,147 @@ def upload_resume(job_id):
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        # Extract text
-        if filename.lower().endswith('.pdf'):
-            resume_text = extract_text_from_pdf(file_path)
-        else:
-            resume_text = extract_text_from_docx(file_path)
+        # Try to extract text, but don't let extraction failures stop the process
+        resume_text = ""
+        try:
+            if filename.lower().endswith('.pdf'):
+                resume_text = extract_text_from_pdf(file_path)
+            else:
+                resume_text = extract_text_from_docx(file_path)
 
-        if not resume_text.strip():
-            raise ValueError("Could not extract text from resume")
+            # Log the first 100 characters of extracted text for debugging
+            current_app.logger.info("Extracted text preview: {}".format(resume_text[:100].replace('\n', ' ') + "..."))
+        except Exception as e:
+            current_app.logger.error(f"Text extraction error but continuing: {str(e)}")
+            resume_text = "Error extracting text from document. Processing with minimal information."
 
-        # Process information
-        score = calculate_score(resume_text, job.description)
-        name = extract_name(resume_text) or request.form.get('name', '')
-        email = extract_email(resume_text) or request.form.get('email', '')
-        mobile = extract_phone(resume_text) or request.form.get('mobile', '')
-        city = extract_address(resume_text) or request.form.get('city', '')
-        qualification = extract_highest_qualification(resume_text)
+        # Process information - with fallbacks for each extraction
+        try:
+            score = calculate_score(resume_text, job.description)
+        except Exception as e:
+            current_app.logger.error(f"Score calculation error but continuing: {str(e)}")
+            score = 1.0  # Default minimal score
+            
+        try:
+            name = extract_name(resume_text) or request.form.get('name', '')
+        except Exception:
+            name = request.form.get('name', '')
+            
+        try:
+            email = extract_email(resume_text) or request.form.get('email', '')
+        except Exception:
+            email = request.form.get('email', '')
+            
+        try:
+            mobile = extract_phone(resume_text) or request.form.get('mobile', '')
+        except Exception:
+            mobile = request.form.get('mobile', '')
+            
+        try:
+            city = extract_address(resume_text) or request.form.get('city', '')
+        except Exception:
+            city = request.form.get('city', '')
+            
+        try:
+            qualification = extract_highest_qualification(resume_text)
+        except Exception:
+            qualification = ""
+
+        # Log extracted information for debugging
+        current_app.logger.info(f"Extracted info - Name: '{name}', Email: '{email}', Mobile: '{mobile}', City: '{city}'")
 
         # Validate required fields - only required if both extracted and form values are empty
         form_email = request.form.get('email', '')
         form_mobile = request.form.get('mobile', '')
+        form_name = request.form.get('name', '')
         
-        # Check if user provided either email or mobile in the form, even if extraction failed
-        if not email and not mobile and not form_email and not form_mobile:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            return jsonify({
-                'error': 'Cannot process resume: No email or mobile number found. At least one is required.',
-                'extracted_info': {
-                    'name': name,
-                    'email': email,
-                    'mobile': mobile,
-                    'city': city,
-                    'qualification': qualification
-                }
-            }), 400
-            
         # Use provided values if extraction failed
         if not email and form_email:
             email = form_email
         if not mobile and form_mobile:
             mobile = form_mobile
+        if not name and form_name:
+            name = form_name
+        
+        # Generate a name from the filename if no name was found
+        if not name:
+            clean_filename = original_filename.replace('.pdf', '').replace('.docx', '')
+            name = clean_filename.replace('_', ' ').title()
+        
+        # Generate placeholder email if needed
+        if not email and not mobile:
+            import hashlib
+            name_hash = hashlib.md5(name.encode()).hexdigest()[:8]
+            email = f"candidate_{name_hash}@placeholder.com"
+            
+        # ALWAYS ACCEPT THE RESUME - we've generated placeholders as needed
 
-        # Check for existing candidate
-        existing = Candidate.query.filter(
-            (Candidate.email == email) | (Candidate.mobile == mobile),
-            Candidate.job_id == job_id
-        ).first()
+        # Check for existing candidate - but don't let this stop us
+        try:
+            existing = None
+            if email:
+                existing = Candidate.query.filter(
+                    Candidate.email == email,
+                    Candidate.job_id == job_id
+                ).first()
+            
+            if not existing and mobile:
+                existing = Candidate.query.filter(
+                    Candidate.mobile == mobile,
+                    Candidate.job_id == job_id
+                ).first()
+                
+            # Log whether we found an existing candidate
+            if existing:
+                current_app.logger.info(f"Found existing candidate with ID {existing.id}, updating")
+                
+                # Update the existing candidate
+                existing.name = name
+                existing.mobile = mobile or existing.mobile
+                existing.email = email or existing.email
+                existing.city = city
+                existing.highest_qualification = qualification
+                existing.resume_path = filename
+                existing.score = score
+                db.session.commit()
+                
+                return jsonify({
+                    'message': 'Candidate updated',
+                    'candidate_id': existing.candidate_id,
+                    'score': score,
+                    'qualification': qualification,
+                    'extracted_info': {
+                        'name': name,
+                        'email': email,
+                        'mobile': mobile,
+                        'city': city,
+                        'qualification': qualification
+                    }
+                }), 200
+        except Exception as e:
+            current_app.logger.error(f"Error checking for existing candidate but continuing: {str(e)}")
+            # Continue with creating a new candidate
 
-        if existing:
-            existing.name = name
-            existing.mobile = mobile
-            existing.city = city
-            existing.highest_qualification = qualification
-            existing.resume_path = filename
-            existing.score = score
+        # Create new candidate - simplified to reduce failure points
+        try:
+            candidate = Candidate(
+                name=name,
+                email=email,
+                mobile=mobile,
+                city=city,
+                highest_qualification=qualification,
+                resume_path=filename,
+                score=score,
+                job_id=job_id
+            )
+            db.session.add(candidate)
             db.session.commit()
+            
+            current_app.logger.info(f"Successfully created new candidate with ID {candidate.id}")
+
             return jsonify({
-                'message': 'Candidate updated',
-                'candidate_id': existing.candidate_id,
+                'message': 'Resume uploaded successfully',
+                'candidate_id': candidate.candidate_id,
                 'score': score,
                 'qualification': qualification,
                 'extracted_info': {
@@ -391,35 +581,12 @@ def upload_resume(job_id):
                     'city': city,
                     'qualification': qualification
                 }
-            }), 200
-
-        # Create new candidate
-        candidate = Candidate(
-            name=name,
-            email=email,
-            mobile=mobile,
-            city=city,
-            highest_qualification=qualification,
-            resume_path=filename,
-            score=score,
-            job_id=job_id
-        )
-        db.session.add(candidate)
-        db.session.commit()
-
-        return jsonify({
-            'message': 'Resume uploaded successfully',
-            'candidate_id': candidate.candidate_id,
-            'score': score,
-            'qualification': qualification,
-            'extracted_info': {
-                'name': name,
-                'email': email,
-                'mobile': mobile,
-                'city': city,
-                'qualification': qualification
-            }
-        }), 201
+            }), 201
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error creating candidate: {str(e)}")
+            # This is a serious error we can't recover from
+            raise
 
     except Exception as e:
         db.session.rollback()
@@ -461,6 +628,7 @@ def get_candidates(job_id):
 def get_top_resumes():
     try:
         limit = request.args.get('limit', default=10, type=int)
+        job_id = request.args.get('job_id', default=None, type=int)
         
         query = db.session.query(
             Candidate, 
@@ -468,7 +636,14 @@ def get_top_resumes():
         ).join(
             Job, 
             Candidate.job_id == Job.id
-        ).order_by(
+        )
+        
+        # Filter by job_id if provided
+        if job_id:
+            query = query.filter(Candidate.job_id == job_id)
+            
+        # Apply limit and ordering
+        query = query.order_by(
             Candidate.score.desc()
         ).limit(limit)
         
