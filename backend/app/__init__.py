@@ -10,7 +10,7 @@ def create_app():
     app = Flask(__name__)
     
     # Configuration
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root@localhost/resume_shortlister'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.root_path, 'database.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = 'dev'
     app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'uploads')
