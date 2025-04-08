@@ -11,4 +11,5 @@ pdfplumber==0.9.0
 pymysql==1.0.3
 SQLAlchemy==2.0.4
 numpy==1.24.2
-gunicorn==20.1.0 
+gunicorn==20.1.0
+psycopg2-binary==2.9.9 

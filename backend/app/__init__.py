@@ -15,12 +15,15 @@ def create_app():
     # Use DATABASE_URL environment variable if available (for Render deployment)
     # Otherwise use SQLite for local development
     database_url = os.environ.get('DATABASE_URL')
-    if database_url and database_url.startswith('postgres://'):
-        # Render uses PostgreSQL, but SQLAlchemy requires postgresql://
-        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    if database_url:
+        if database_url.startswith('postgres://'):
+            # Render uses PostgreSQL, but SQLAlchemy requires postgresql://
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        print(f"Using PostgreSQL database: {database_url}")
     else:
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+        print("Using SQLite database")
     
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev')
