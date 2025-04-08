@@ -33,8 +33,13 @@ def create_app():
     CORS(app)
     db.init_app(app)  # Initialize db with app
     
+    # Import models here to avoid circular imports
+    from .models import Job, Candidate
+    
     # Create database tables
     with app.app_context():
+        # Drop all tables and recreate them
+        db.drop_all()
         db.create_all()
     
     # Register blueprints

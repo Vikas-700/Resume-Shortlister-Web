@@ -2,11 +2,16 @@ services:
   - type: web
     name: resume-shortlister-backend
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
+      python -c "from app import db, create_app; app=create_app(); with app.app_context(): db.drop_all(); db.create_all()"
     startCommand: gunicorn run:app
     envVars:
       - key: FLASK_ENV
         value: production
       - key: FLASK_APP
         value: run.py
+      - key: SECRET_KEY
+        value: your-secret-key-here
     autoDeploy: true 
