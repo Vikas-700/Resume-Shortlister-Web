@@ -18,4 +18,24 @@ services:
         fromDatabase:
           name: resume-shortlister-db
           property: connectionString
+      - key: DB_USER
+        fromDatabase:
+          name: resume-shortlister-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: resume-shortlister-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: resume-shortlister-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: resume-shortlister-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: resume-shortlister-db
+          property: database
     autoDeploy: true 

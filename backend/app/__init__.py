@@ -19,6 +19,10 @@ def create_app():
         if database_url.startswith('postgres://'):
             # Render uses PostgreSQL, but SQLAlchemy requires postgresql://
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        elif not database_url.startswith('postgresql://'):
+            # If it's just a hostname, construct the full URL
+            database_url = f"postgresql://{os.environ.get('DB_USER', 'postgres')}:{os.environ.get('DB_PASSWORD', '')}@{database_url}:{os.environ.get('DB_PORT', '5432')}/{os.environ.get('DB_NAME', 'resume_shortlister')}"
+        
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
         print(f"Using PostgreSQL database: {database_url}")
     else:
