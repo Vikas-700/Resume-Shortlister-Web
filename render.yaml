@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: resume-shortlister-backend
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
+    startCommand: cd backend && gunicorn run:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: run.py
+      - key: SECRET_KEY
+        value: your-secret-key-here
+      - key: DATABASE_URL
+        fromDatabase:
+          name: resume-shortlister-db
+          property: connectionString
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+databases:
+  - name: resume-shortlister-db
+    plan: free
+    databaseName: resume_shortlister 
