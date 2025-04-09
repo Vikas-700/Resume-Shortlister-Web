@@ -33,8 +33,6 @@ ALLOWED_EXTENSIONS = {'pdf', 'docx'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-
 @main.route('/')
 def index():
     return jsonify({
@@ -54,44 +52,40 @@ def create_job():
         if not data or 'title' not in data or 'description' not in data:
             return jsonify({'error': 'Title and description are required'}), 400
         
-        # Print the received data for debugging
-        print("Received job data:", data)
-        
         job = Job(
             title=data['title'],
             description=data['description']
         )
         
-        try:
-            db.session.add(job)
-            db.session.commit()
-            return jsonify({
-                'message': 'Job created successfully',
-                'job': {
-                    'id': job.id,
-                    'title': job.title,
-                    'description': job.description,
-                    'created_at': job.created_at.isoformat()
-                }
-            }), 201
-        except Exception as e:
-            # Print the database error
-            print("Database error:", str(e))
-            db.session.rollback()
-            return jsonify({'error': f'Database error: {str(e)}'}), 500
-            
+        db.session.add(job)
+        db.session.commit()
+        return jsonify({
+            'message': 'Job created successfully',
+            'job': {
+                'id': job.id,
+                'title': job.title,
+                'description': job.description,
+                'created_at': job.created_at.isoformat()
+            }
+        }), 201
     except Exception as e:
-        # Print any other errors
-        print("General error:", str(e))
+        db.session.rollback()
         return jsonify({'error': f'Failed to create job: {str(e)}'}), 500
 
 @main.route('/api/jobs', methods=['GET'])
 def get_jobs():
     try:
         jobs = Job.query.all()
-        return jsonify({"jobs": [{'id': j.id, 'title': j.title, 'description': j.description} for j in jobs]})
+        return jsonify({
+            'jobs': [{
+                'id': job.id,
+                'title': job.title,
+                'description': job.description,
+                'created_at': job.created_at.isoformat() if job.created_at else None
+            } for job in jobs]
+        })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Failed to fetch jobs: {str(e)}'}), 500
 
 @main.route('/api/jobs/<int:job_id>', methods=['DELETE'])
 def delete_job(job_id):
@@ -219,7 +213,7 @@ def upload_resume(job_id):
                     Candidate.mobile == mobile,
                     Candidate.job_id == job_id
                 ).first()
-                
+
             # Log whether we found an existing candidate
             if existing:
                 current_app.logger.info(f"Found existing candidate with ID {existing.id}, updating")
@@ -238,157 +232,128 @@ def upload_resume(job_id):
                     'message': 'Candidate updated',
                     'candidate_id': existing.candidate_id,
                     'score': score,
-                    'qualification': qualification,
                     'extracted_info': {
                         'name': name,
                         'email': email,
                         'mobile': mobile,
                         'city': city,
-                        'qualification': qualification
+                        'highest_qualification': qualification
                     }
-                }), 200
-        except Exception as e:
-            current_app.logger.error(f"Error checking for existing candidate but continuing: {str(e)}")
-            # Continue with creating a new candidate
+                })
 
-        # Create new candidate - simplified to reduce failure points
-        try:
-            candidate = Candidate(
-                name=name,
-                email=email,
-                mobile=mobile,
-                city=city,
-                highest_qualification=qualification,
-                resume_path=filename,
-                score=score,
-                job_id=job_id
-            )
-            db.session.add(candidate)
-            db.session.commit()
-            
-            current_app.logger.info(f"Successfully created new candidate with ID {candidate.id}")
-
-            return jsonify({
-                'message': 'Resume uploaded successfully',
-                'candidate_id': candidate.candidate_id,
-                'score': score,
-                'qualification': qualification,
-                'extracted_info': {
-                    'name': name,
-                    'email': email,
-                    'mobile': mobile,
-                    'city': city,
-                    'qualification': qualification
-                }
-            }), 201
         except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error creating candidate: {str(e)}")
-            # This is a serious error we can't recover from
-            raise
+            current_app.logger.error(f"Error checking for existing candidate: {str(e)}")
+            # Continue with new candidate creation
+
+        # Create new candidate
+        candidate_id = str(uuid.uuid4())
+        candidate = Candidate(
+            candidate_id=candidate_id,
+            name=name,
+            email=email,
+            mobile=mobile,
+            city=city,
+            highest_qualification=qualification,
+            resume_path=filename,
+            score=score,
+            job_id=job_id
+        )
+        
+        db.session.add(candidate)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Resume uploaded successfully',
+            'candidate_id': candidate_id,
+            'score': score,
+            'extracted_info': {
+                'name': name,
+                'email': email,
+                'mobile': mobile,
+                'city': city,
+                'highest_qualification': qualification
+            }
+        })
 
     except Exception as e:
-        db.session.rollback()
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except:
                 pass
-        # Log detailed error information
-        import traceback
-        error_details = traceback.format_exc()
-        current_app.logger.error(f"Resume upload error: {str(e)}\n{error_details}")
-        
-        # Return a more helpful error message
-        return jsonify({
-            'error': f"Failed to process resume: {str(e)}",
-            'details': "The server encountered an error while processing your resume. Please try again or use a different file format."
-        }), 500
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/resumes/<path:filename>')
+def download_file(filename):
+    try:
+        return send_from_directory(
+            current_app.config['UPLOAD_FOLDER'],
+            filename,
+            as_attachment='download' in request.args
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 404
 
 @main.route('/api/jobs/<int:job_id>/candidates', methods=['GET'])
 def get_candidates(job_id):
     try:
-        candidates = Candidate.query.filter_by(job_id=job_id).order_by(Candidate.score.desc()).all()
-        return jsonify({"candidates": [{
-            'id': c.id,
-            'candidate_id': c.candidate_id,
-            'name': c.name,
-            'email': c.email,
-            'mobile': c.mobile,
-            'city': c.city,
-            'qualification': c.highest_qualification,
-            'score': c.score,
-            'resume_path': c.resume_path
-        } for c in candidates]})
+        candidates = Candidate.query.filter_by(job_id=job_id).all()
+        return jsonify({
+            'candidates': [{
+                'id': c.id,
+                'candidate_id': c.candidate_id,
+                'name': c.name,
+                'email': c.email,
+                'mobile': c.mobile,
+                'city': c.city,
+                'highest_qualification': c.highest_qualification,
+                'resume_path': c.resume_path,
+                'score': c.score
+            } for c in candidates]
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @main.route('/api/top-resumes', methods=['GET'])
 def get_top_resumes():
     try:
+        # Get optional job_id and limit parameters
+        job_id = request.args.get('job_id', type=int)
         limit = request.args.get('limit', default=10, type=int)
-        job_id = request.args.get('job_id', default=None, type=int)
         
-        query = db.session.query(
-            Candidate, 
-            Job.title.label('job_title')
-        ).join(
-            Job, 
-            Candidate.job_id == Job.id
-        )
+        # Base query
+        query = Candidate.query
         
-        # Filter by job_id if provided
+        # Filter by job if specified
         if job_id:
-            query = query.filter(Candidate.job_id == job_id)
-            
-        # Apply limit and ordering
-        query = query.order_by(
-            Candidate.score.desc()
-        ).limit(limit)
+            query = query.filter_by(job_id=job_id)
         
-        results = query.all()
+        # Get top candidates by score
+        top_candidates = query.order_by(Candidate.score.desc()).limit(limit).all()
         
-        return jsonify({
-            'top_resumes': [{
-                'id': c.Candidate.id,
-                'candidate_id': c.Candidate.candidate_id,
-                'name': c.Candidate.name,
-                'email': c.Candidate.email,
-                'mobile': c.Candidate.mobile,
-                'city': c.Candidate.city,
-                'score': c.Candidate.score,
-                'resume_path': c.Candidate.resume_path,
-                'job_id': c.Candidate.job_id,
-                'job_title': c.job_title
-            } for c in results]
-        })
+        # Get job titles for each candidate
+        result = []
+        for candidate in top_candidates:
+            job = Job.query.get(candidate.job_id)
+            result.append({
+                'id': candidate.id,
+                'candidate_id': candidate.candidate_id,
+                'name': candidate.name,
+                'email': candidate.email,
+                'mobile': candidate.mobile,
+                'city': candidate.city,
+                'highest_qualification': candidate.highest_qualification,
+                'resume_path': candidate.resume_path,
+                'score': candidate.score,
+                'job_id': candidate.job_id,
+                'job_title': job.title if job else 'Unknown Job'
+            })
+        
+        return jsonify({'top_resumes': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@main.route('/api/resumes/<filename>', methods=['GET'])
-def download_resume(filename):
-    try:
-        if '..' in filename or filename.startswith('/'):
-            return jsonify({'error': 'Invalid filename'}), 400
-            
-        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-        
-        if not os.path.exists(file_path):
-            return jsonify({'error': 'File not found'}), 404
-            
-        content_type = 'application/pdf' if filename.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        
-        disposition_type = request.args.get('download', 'false').lower() == 'true'
-        
-        return send_from_directory(
-            current_app.config['UPLOAD_FOLDER'],
-            filename,
-            mimetype=content_type,
-            as_attachment=disposition_type,
-            download_name=filename.split('_', 1)[1] if '_' in filename else filename
-        )
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error fetching top resumes: {str(e)}")
+        return jsonify({'error': f'Failed to fetch top resumes: {str(e)}'}), 500
 
 # Error handler
 @main.app_errorhandler(404)

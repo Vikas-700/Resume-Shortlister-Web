@@ -10,7 +10,7 @@ A web application for shortlisting resumes based on job descriptions using NLP t
 - Score calculation based on resume-job description matching
 - View top candidates for each job
 
-## Local Installation
+## Installation
 
 1. Clone the repository:
    ```
@@ -18,25 +18,48 @@ A web application for shortlisting resumes based on job descriptions using NLP t
    cd Resume-Shortlister-Web
    ```
 
-2. Install backend dependencies:
+2. Install dependencies:
    ```
-   cd backend
    pip install -r requirements.txt
    ```
 
-3. Run the Flask backend:
+3. PostgreSQL Setup:
+   - Install PostgreSQL if not already installed
+   - Create a database named `resume_shortlister`:
+     ```
+     cd backend
+     python create_db.py
+     ```
+   - Or manually create the database:
+     ```
+     psql -U postgres
+     CREATE DATABASE resume_shortlister;
+     \q
+     ```
+
+4. Set up environment variables (optional):
+   - `DB_USER`: PostgreSQL username (default: postgres)
+   - `DB_PASSWORD`: PostgreSQL password (default: empty)
+   - `DB_HOST`: PostgreSQL host (default: localhost)
+   - `DB_PORT`: PostgreSQL port (default: 5432)
+   - `DB_NAME`: PostgreSQL database name (default: resume_shortlister)
+
+5. Initialize the database:
    ```
-   python -m flask run
+   cd backend
+   python -c "from app import db, create_app; app=create_app(); with app.app_context(): db.create_all()"
    ```
 
-4. Install frontend dependencies:
+6. Run the backend:
    ```
-   cd ../frontend
+   cd backend
+   python run.py
+   ```
+
+7. Run the frontend:
+   ```
+   cd frontend
    npm install
-   ```
-
-5. Run the React frontend:
-   ```
    npm run dev
    ```
 
@@ -55,7 +78,7 @@ A web application for shortlisting resumes based on job descriptions using NLP t
      - `FLASK_APP`: run.py
      - `SECRET_KEY`: [generate a random secure string]
 
-4. Render will create a PostgreSQL database for you. The application is configured to use the provided `DATABASE_URL`.
+4. Create a PostgreSQL database on Render and link it to your Web Service
 
 ### Frontend Deployment
 
@@ -66,7 +89,8 @@ A web application for shortlisting resumes based on job descriptions using NLP t
 
 - Backend: Flask, SQLAlchemy, NLTK, scikit-learn
 - Frontend: React
-- Database: SQLite (local development), PostgreSQL (production)
+- Database: PostgreSQL
+- Deployment: Render (backend), GitHub Pages (frontend)
 
 ## License
 

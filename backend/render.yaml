@@ -38,4 +38,6 @@ services:
         fromDatabase:
           name: resume-shortlister-db
           property: database
+      - key: PYTHONUNBUFFERED
+        value: 1
     autoDeploy: true 

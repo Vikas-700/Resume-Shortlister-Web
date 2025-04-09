@@ -524,7 +524,7 @@ h3 {
 .candidate-item .score {
   font-weight: bold;
   color: var(--success);
-  font-size: 1.2rem;
+    font-size: 1.2rem;
 }
 
 /* File Drop Zone */
